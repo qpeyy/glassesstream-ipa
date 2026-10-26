@@ -1,0 +1,13 @@
+# Xcode (xcodeproj is generated on the CI runner by XcodeGen, not committed)
+*.xcworkspace/
+DerivedData/
+build/
+*.ipa
+*.xcarchive
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store

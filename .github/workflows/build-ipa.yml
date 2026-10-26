@@ -1,0 +1,56 @@
+name: Build Unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Resolve SPM packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project GlassesStream.xcodeproj \
+            -scheme GlassesStream \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project GlassesStream.xcodeproj \
+            -scheme GlassesStream \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/GlassesStream.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: List archive contents
+        run: ls -R build/GlassesStream.xcarchive/Products/Applications/ || echo "Archive path not found, listing build/:"  && ls -R build/ || true
+
+      - name: Package IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R "build/GlassesStream.xcarchive/Products/Applications/GlassesStream.app" build/Payload/
+          cd build && zip -r GlassesStream.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlassesStream-ipa
+          path: build/GlassesStream.ipa
