@@ -10,40 +10,34 @@ final class GlassesManager: ObservableObject {
     @Published var statusText = "Scanning..."
 
     private var session: DeviceSession?
-    private var streamTask: Task<Void, Never>?
+    // Tokens must be retained or subscriptions are cancelled
+    private var tokenBag = ListenerTokenBag()
+    private var sessionTask: Task<Void, Never>?
 
     func start() {
-        Task { await connect() }
+        sessionTask = Task { await connect() }
     }
 
     private func connect() async {
-        statusText = "Requesting camera permission..."
-        let permStatus = await Wearables.shared.checkPermissionStatus(.camera)
-        if permStatus != .granted {
-            let granted = await Wearables.shared.requestPermission(.camera)
-            guard granted else {
-                statusText = "Camera permission denied"
-                return
-            }
-        }
-
         statusText = "Connecting to glasses..."
-        let selector = AutoDeviceSelector()
+        let wearables = Wearables.shared
+        let selector = AutoDeviceSelector(wearables: wearables)
+
         do {
-            let session = try await Wearables.shared.createSession(deviceSelector: selector)
+            let session = try wearables.createSession(deviceSelector: selector)
             self.session = session
-            try await session.start()
+            try session.start()
 
             for await state in session.stateStream() {
                 switch state {
                 case .started:
                     isConnected = true
                     statusText = "Connected"
-                    await startStream(session: session)
+                    startStream(session: session)
                 case .stopped:
                     isConnected = false
                     statusText = "Disconnected — retrying..."
-                    streamTask?.cancel()
+                    tokenBag = ListenerTokenBag()
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     await connect()
                     return
@@ -58,21 +52,27 @@ final class GlassesManager: ObservableObject {
         }
     }
 
-    private func startStream(session: DeviceSession) async {
-        let config = StreamConfiguration(codec: .h264, resolution: .medium, frameRate: 24)
+    private func startStream(session: DeviceSession) {
+        let config = StreamConfiguration(
+            videoCodec: .raw,
+            resolution: .medium,
+            frameRate: 24
+        )
         do {
-            let camera = try await session.addCamera(config: config)
-            let stream = camera.stream
-            try await stream.start()
-            isConnected = true
-
-            streamTask = Task {
-                for await frame in stream.videoFrames {
-                    if let jpeg = frame.jpegData {
-                        StreamServer.shared.sendFrame(jpeg)
-                    }
-                }
+            guard let camera = try session.addCamera(config: config) else {
+                statusText = "Camera not available"
+                return
             }
+            let stream = camera.stream
+
+            let frameToken = stream.videoFramePublisher.listen { frame in
+                guard let image = frame.makeUIImage(),
+                      let jpeg = image.jpegData(compressionQuality: 0.7) else { return }
+                StreamServer.shared.sendFrame(jpeg)
+            }
+            tokenBag.add(frameToken)
+
+            stream.start()
         } catch {
             statusText = "Stream error: \(error.localizedDescription)"
         }

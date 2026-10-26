@@ -4,7 +4,11 @@ import MWDATCore
 @main
 struct GlassesStreamApp: App {
     init() {
-        Wearables.configure()
+        do {
+            try Wearables.configure()
+        } catch {
+            print("Wearables configure failed: \(error)")
+        }
     }
 
     var body: some Scene {

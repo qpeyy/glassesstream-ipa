@@ -8,7 +8,7 @@ options:
 packages:
   meta-wearables-dat-ios:
     url: https://github.com/facebook/meta-wearables-dat-ios
-    branch: main
+    exactVersion: "1.0.1"
 
 targets:
   GlassesStream:
