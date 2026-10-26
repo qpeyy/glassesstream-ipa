@@ -10,8 +10,7 @@ final class GlassesManager: ObservableObject {
     @Published var statusText = "Scanning..."
 
     private var session: DeviceSession?
-    // Tokens must be retained or subscriptions are cancelled
-    private var tokenBag = ListenerTokenBag()
+    private var tokens: [AnyListenerToken] = []
     private var sessionTask: Task<Void, Never>?
 
     func start() {
@@ -37,7 +36,7 @@ final class GlassesManager: ObservableObject {
                 case .stopped:
                     isConnected = false
                     statusText = "Disconnected — retrying..."
-                    tokenBag = ListenerTokenBag()
+                    tokens.removeAll()
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     await connect()
                     return
@@ -65,13 +64,14 @@ final class GlassesManager: ObservableObject {
             }
             let stream = camera.stream
 
-            stream.videoFramePublisher.listen { frame in
+            let frameToken = stream.videoFramePublisher.listen { frame in
                 guard let image = frame.makeUIImage(),
                       let jpeg = image.jpegData(compressionQuality: 0.7) else { return }
                 Task { @MainActor in
                     StreamServer.shared.sendFrame(jpeg)
                 }
-            }.store(in: &tokenBag)
+            }
+            tokens.append(frameToken)
 
             stream.start()
         } catch {
