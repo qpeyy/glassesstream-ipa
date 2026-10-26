@@ -2,19 +2,19 @@ name: GlassesStream
 options:
   bundleIdPrefix: com.local
   deploymentTarget:
-    iOS: "16.0"
-  xcodeVersion: "15"
+    iOS: "17.2"
+  xcodeVersion: "16"
 
 packages:
-  MetaWearablesSDK:
-    url: https://github.com/facebookresearch/MetaWearablesSDK
+  meta-wearables-dat-ios:
+    url: https://github.com/facebook/meta-wearables-dat-ios
     branch: main
 
 targets:
   GlassesStream:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.2"
     sources:
       - GlassesStream
     settings:
@@ -25,8 +25,8 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""
         TARGETED_DEVICE_FAMILY: "1"
-        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
-        SWIFT_VERSION: "5.9"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.2"
+        SWIFT_VERSION: "6.0"
         INFOPLIST_FILE: GlassesStream/Info.plist
     info:
       path: GlassesStream/Info.plist
@@ -44,4 +44,7 @@ targets:
         NSLocalNetworkUsageDescription: "Required to serve the MJPEG stream on your local network."
         NSCameraUsageDescription: "The glasses camera feed is displayed and streamed from the app."
     dependencies:
-      - package: MetaWearablesSDK
+      - package: meta-wearables-dat-ios
+        product: MWDATCore
+      - package: meta-wearables-dat-ios
+        product: MWDATCamera

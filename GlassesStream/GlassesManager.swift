@@ -1,80 +1,80 @@
 import Foundation
-import Combine
+import MWDATCore
+import MWDATCamera
 
-// Meta Wearables Device Access Toolkit SDK integration.
-// Import the SDK module once SPM resolves it; stub types allow compilation
-// without the physical glasses during CI.
-#if canImport(MetaWearablesSDK)
-import MetaWearablesSDK
-#endif
-
+@MainActor
 final class GlassesManager: ObservableObject {
     static let shared = GlassesManager()
 
     @Published var isConnected = false
     @Published var statusText = "Scanning..."
 
-    private var reconnectTimer: Timer?
-
-#if canImport(MetaWearablesSDK)
-    private var client: MetaWearablesClient?
-    private var streamSession: MediaStreamSession?
+    private var session: DeviceSession?
+    private var streamTask: Task<Void, Never>?
 
     func start() {
-        connect()
+        Task { await connect() }
     }
 
-    private func connect() {
-        statusText = "Scanning for glasses..."
-        client = MetaWearablesClient()
-        client?.delegate = self
-        client?.startDiscovery()
-    }
+    private func connect() async {
+        statusText = "Requesting camera permission..."
+        let permStatus = await Wearables.shared.checkPermissionStatus(.camera)
+        if permStatus != .granted {
+            let granted = await Wearables.shared.requestPermission(.camera)
+            guard granted else {
+                statusText = "Camera permission denied"
+                return
+            }
+        }
 
-    private func scheduleReconnect() {
-        reconnectTimer?.invalidate()
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
-            self?.connect()
+        statusText = "Connecting to glasses..."
+        let selector = AutoDeviceSelector()
+        do {
+            let session = try await Wearables.shared.createSession(deviceSelector: selector)
+            self.session = session
+            try await session.start()
+
+            for await state in session.stateStream() {
+                switch state {
+                case .started:
+                    isConnected = true
+                    statusText = "Connected"
+                    await startStream(session: session)
+                case .stopped:
+                    isConnected = false
+                    statusText = "Disconnected — retrying..."
+                    streamTask?.cancel()
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await connect()
+                    return
+                default:
+                    break
+                }
+            }
+        } catch {
+            statusText = "Error: \(error.localizedDescription)"
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await connect()
         }
     }
-#else
-    // Stub for CI builds without the SDK hardware
-    func start() {
-        statusText = "SDK unavailable (simulator/CI)"
+
+    private func startStream(session: DeviceSession) async {
+        let config = StreamConfiguration(codec: .h264, resolution: .medium, frameRate: 24)
+        do {
+            let camera = try await session.addCamera(config: config)
+            let stream = camera.stream
+            try await stream.start()
+            isConnected = true
+
+            streamTask = Task {
+                for await frame in stream.videoFrames {
+                    if let jpeg = frame.jpegData {
+                        StreamServer.shared.sendFrame(jpeg)
+                    }
+                }
+            }
+        } catch {
+            statusText = "Stream error: \(error.localizedDescription)"
+        }
     }
-#endif
 }
-
-#if canImport(MetaWearablesSDK)
-extension GlassesManager: MetaWearablesClientDelegate {
-    func client(_ client: MetaWearablesClient, didDiscover device: MetaWearablesDevice) {
-        client.connect(to: device)
-        statusText = "Connecting to \(device.name)..."
-    }
-
-    func client(_ client: MetaWearablesClient, didConnect device: MetaWearablesDevice) {
-        DispatchQueue.main.async {
-            self.isConnected = true
-            self.statusText = "Connected: \(device.name)"
-        }
-        startStreaming(device: device)
-    }
-
-    func client(_ client: MetaWearablesClient, didDisconnect device: MetaWearablesDevice, error: Error?) {
-        DispatchQueue.main.async {
-            self.isConnected = false
-            self.statusText = "Disconnected — retrying…"
-        }
-        streamSession?.stop()
-        streamSession = nil
-        scheduleReconnect()
-    }
-
-    private func startStreaming(device: MetaWearablesDevice) {
-        streamSession = device.startMediaStream(type: .camera) { [weak self] frame in
-            guard let jpegData = frame.jpegData else { return }
-            StreamServer.shared.sendFrame(jpegData)
-        }
-    }
-}
-#endif
