@@ -1,6 +1,7 @@
 import Foundation
 import Network
 
+@MainActor
 final class StreamServer: ObservableObject {
     static let shared = StreamServer()
     @Published var isRunning = false
@@ -16,10 +17,12 @@ final class StreamServer: ObservableObject {
         self.listener = listener
 
         listener.newConnectionHandler = { [weak self] conn in
-            self?.handleConnection(conn)
+            Task { @MainActor [weak self] in
+                self?.handleConnection(conn)
+            }
         }
         listener.stateUpdateHandler = { [weak self] state in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 self?.isRunning = state == .ready
             }
         }
@@ -35,10 +38,13 @@ final class StreamServer: ObservableObject {
     private func readRequest(_ conn: NWConnection) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] data, _, _, _ in
             guard let data = data, let request = String(data: data, encoding: .utf8) else { return }
-            if request.contains("GET /stream") {
-                self?.sendMJPEGHeaders(conn)
-            } else {
-                self?.send404(conn)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if request.contains("GET /stream") {
+                    self.sendMJPEGHeaders(conn)
+                } else {
+                    self.send404(conn)
+                }
             }
         }
     }
@@ -60,10 +66,8 @@ final class StreamServer: ObservableObject {
         payload.append("\r\n".data(using: .utf8)!)
 
         connections = connections.filter { conn in
-            switch conn.state {
-            case .ready: return true
-            default: return false
-            }
+            if case .ready = conn.state { return true }
+            return false
         }
         for conn in connections {
             conn.send(content: payload, completion: .idempotent)

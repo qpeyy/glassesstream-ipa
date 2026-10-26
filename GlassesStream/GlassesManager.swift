@@ -65,12 +65,13 @@ final class GlassesManager: ObservableObject {
             }
             let stream = camera.stream
 
-            let frameToken = stream.videoFramePublisher.listen { frame in
+            stream.videoFramePublisher.listen { frame in
                 guard let image = frame.makeUIImage(),
                       let jpeg = image.jpegData(compressionQuality: 0.7) else { return }
-                StreamServer.shared.sendFrame(jpeg)
-            }
-            tokenBag.add(frameToken)
+                Task { @MainActor in
+                    StreamServer.shared.sendFrame(jpeg)
+                }
+            }.store(in: &tokenBag)
 
             stream.start()
         } catch {
