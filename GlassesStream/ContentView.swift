@@ -20,7 +20,17 @@ struct ContentView: View {
                     statusDot("Registered", glasses.registrationState == .registered)
                     statusDot("Glasses", glasses.hasActiveDevice)
                     statusDot("Streaming", glasses.isStreaming)
-                    statusDot("Server", server.isRunning)
+                    statusDot("Server (\(server.viewerCount))", server.isRunning)
+                }
+
+                if glasses.needsFirmwareUpdate {
+                    Button("Update glasses firmware") { glasses.openFirmwareUpdate() }
+                        .font(.subheadline)
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(Color.yellow)
+                        .cornerRadius(10)
                 }
 
                 if glasses.registrationState != .registered {

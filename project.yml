@@ -36,6 +36,7 @@ targets:
         CFBundleIdentifier: com.local.glassesstream
         CFBundleVersion: "1"
         CFBundleShortVersionString: "1.0"
+        UILaunchScreen: {}
         UIRequiredDeviceCapabilities:
           - arm64
         UISupportedInterfaceOrientations:
