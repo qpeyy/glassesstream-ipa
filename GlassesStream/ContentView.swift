@@ -1,37 +1,53 @@
 import SwiftUI
-import Network
+import MWDATCore
 
 struct ContentView: View {
     @StateObject private var glasses = GlassesManager.shared
     @StateObject private var server = StreamServer.shared
-    @State private var wifiIP: String = "Connecting..."
+    @State private var wifiIP: String = "..."
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 Text("GlassesStream")
                     .font(.title2)
                     .foregroundColor(.white.opacity(0.6))
 
-                Text("http://\(wifiIP):8080/stream")
-                    .font(.system(.title3, design: .monospaced))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding()
+                if glasses.registrationState == .registered {
+                    Text("http://\(wifiIP):8080/stream")
+                        .font(.system(.title3, design: .monospaced))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                } else {
+                    Button(action: { glasses.register() }) {
+                        Text("Connect to Meta AI")
+                            .font(.headline)
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 32)
+                            .padding(.vertical, 14)
+                            .background(Color.white)
+                            .cornerRadius(12)
+                    }
+                }
 
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(glasses.isConnected ? Color.green : Color.red)
+                        .fill(glasses.isConnected ? Color.green : Color.orange)
                         .frame(width: 10, height: 10)
                     Text(glasses.statusText)
                         .font(.footnote)
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
                 }
+                .padding(.horizontal)
 
-                Text(server.isRunning ? "Streaming" : "Server starting...")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.5))
+                if server.isRunning && glasses.isConnected {
+                    Text("Live")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
             }
             .padding()
         }

@@ -41,16 +41,22 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSBluetoothAlwaysUsageDescription: "Required to connect to Ray-Ban Meta glasses via Bluetooth."
+        NSBluetoothPeripheralUsageDescription: "Required to connect to Ray-Ban Meta glasses via Bluetooth."
         NSLocalNetworkUsageDescription: "Required to serve the MJPEG stream on your local network."
         NSCameraUsageDescription: "The glasses camera feed is displayed and streamed from the app."
-        UISupportedExternalAccessoryProtocols:
-          - com.meta.ar.wearable
         NSBonjourServices:
           - _bonjour._tcp
         UIBackgroundModes:
+          - processing
           - bluetooth-central
           - bluetooth-peripheral
-          - external-accessory
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: com.local.glassesstream
+            CFBundleURLSchemes:
+              - glassesstream
+        MWDAT:
+          AppLinkURLScheme: "glassesstream://"
     dependencies:
       - package: meta-wearables-dat-ios
         product: MWDATCore
