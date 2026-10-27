@@ -111,7 +111,7 @@ final class GlassesManager: ObservableObject {
             do {
                 try await Wearables.shared.openFirmwareUpdate()
             } catch {
-                addLog("openFirmwareUpdate error: \(error.description)")
+                addLog("openFirmwareUpdate error: \(error.localizedDescription)")
             }
         }
     }
@@ -125,7 +125,7 @@ final class GlassesManager: ObservableObject {
             do {
                 try await Wearables.shared.startRegistration()
             } catch {
-                addLog("Registration error: \(error.description)")
+                addLog("Registration error: \(error.localizedDescription)")
             }
         }
     }
@@ -139,7 +139,7 @@ final class GlassesManager: ObservableObject {
             do {
                 try await Wearables.shared.startUnregistration()
             } catch {
-                addLog("Unregister error: \(error.description)")
+                addLog("Unregister error: \(error.localizedDescription)")
             }
         }
     }
@@ -164,7 +164,7 @@ final class GlassesManager: ObservableObject {
                             try await request.continueRegistration()
                             manager.addLog("Registration request continued")
                         } catch {
-                            manager.addLog("continueRegistration error: \(error.description)")
+                            manager.addLog("continueRegistration error: \(error.localizedDescription)")
                         }
                     }
                 })
@@ -223,7 +223,7 @@ final class GlassesManager: ObservableObject {
                 do {
                     try await Wearables.shared.openDATGlassesAppUpdate()
                 } catch {
-                    addLog("openDATGlassesAppUpdate error: \(error.description)")
+                    addLog("openDATGlassesAppUpdate error: \(error.localizedDescription)")
                 }
             }
         }
