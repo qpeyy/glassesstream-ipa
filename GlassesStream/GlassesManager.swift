@@ -170,7 +170,7 @@ final class GlassesManager: ObservableObject {
                 })
                 addLog("Meta AI callback handled")
             } catch {
-                addLog("handleUrl error: \(error.description)")
+                addLog("handleUrl error: \(error.localizedDescription)")
             }
         }
     }
@@ -216,7 +216,7 @@ final class GlassesManager: ObservableObject {
     }
 
     private func sessionErrorReceived(_ error: DeviceSessionError) {
-        addLog("Session error: \(error.description)")
+        addLog("Session error: \(error.localizedDescription)")
         if error == .datAppOnTheGlassesUpdateRequired {
             addLog("Glasses-side app needs an update, opening Meta AI...")
             Task {
@@ -273,7 +273,7 @@ final class GlassesManager: ObservableObject {
                 guard result == .granted else { return }
             }
         } catch {
-            addLog("Camera permission error: \(error.description)")
+            addLog("Camera permission error: \(error.localizedDescription)")
             return
         }
         guard let current = self.session, current.state == .started, camera == nil else { return }
@@ -293,7 +293,7 @@ final class GlassesManager: ObservableObject {
                 Task { @MainActor in self?.streamStateChanged(state) }
             }.store(in: streamTokens)
             stream.errorPublisher.listen { [weak self] error in
-                Task { @MainActor in self?.addLog("Stream error: \(error.description)") }
+                Task { @MainActor in self?.addLog("Stream error: \(error.localizedDescription)") }
             }.store(in: streamTokens)
             stream.videoFramePublisher.listen { frame in
                 guard let image = frame.makeUIImage(),
@@ -303,7 +303,7 @@ final class GlassesManager: ObservableObject {
             addLog("Starting camera stream...")
             stream.start()
         } catch {
-            addLog("addCamera error: \(error.description)")
+            addLog("addCamera error: \(error.localizedDescription)")
         }
     }
 
