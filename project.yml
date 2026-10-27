@@ -43,6 +43,9 @@ targets:
         NSBluetoothAlwaysUsageDescription: "Required to connect to Ray-Ban Meta glasses via Bluetooth."
         NSLocalNetworkUsageDescription: "Required to serve the MJPEG stream on your local network."
         NSCameraUsageDescription: "The glasses camera feed is displayed and streamed from the app."
+        MWDAT:
+          MetaAppID: "1556349366357733"
+          ClientToken: "AR|1556349366357733|f30098ab3d94e6b93dbd7bc331472394"
     dependencies:
       - package: meta-wearables-dat-ios
         product: MWDATCore
