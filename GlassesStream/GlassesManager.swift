@@ -24,7 +24,7 @@ final class GlassesManager: ObservableObject {
 
         // Log active device before attempting session
         let active = await selector.activeDevice
-        statusText = "Active device: \(active?.name ?? "nil")"
+        statusText = "Active device: \(active ?? "nil")"
         try? await Task.sleep(nanoseconds: 2_000_000_000)
 
         do {
