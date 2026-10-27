@@ -7,7 +7,7 @@ struct GlassesStreamApp: App {
         do {
             try Wearables.configure()
         } catch {
-            print("Wearables.configure failed: \(error)")
+            GlassesManager.configureError = "\(error)"
         }
     }
 
@@ -15,12 +15,7 @@ struct GlassesStreamApp: App {
         WindowGroup {
             ContentView()
                 .onOpenURL { url in
-                    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                          components.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true
-                    else { return }
-                    Task {
-                        try? await Wearables.shared.handleUrl(url)
-                    }
+                    GlassesManager.shared.handleURL(url)
                 }
         }
     }

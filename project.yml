@@ -37,7 +37,7 @@ targets:
         CFBundleVersion: "1"
         CFBundleShortVersionString: "1.0"
         UIRequiredDeviceCapabilities:
-          - armv7
+          - arm64
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSBluetoothAlwaysUsageDescription: "Required to connect to Ray-Ban Meta glasses via Bluetooth."
@@ -50,6 +50,9 @@ targets:
           - processing
           - bluetooth-central
           - bluetooth-peripheral
+          - external-accessory
+        UISupportedExternalAccessoryProtocols:
+          - com.meta.ar.wearable
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
             CFBundleURLName: com.local.glassesstream
@@ -57,6 +60,9 @@ targets:
               - glassesstream
         MWDAT:
           AppLinkURLScheme: "glassesstream://"
+          MetaAppID: "0"
+          ClientToken: ""
+          TeamID: ""
     dependencies:
       - package: meta-wearables-dat-ios
         product: MWDATCore

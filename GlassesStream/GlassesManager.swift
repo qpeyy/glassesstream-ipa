@@ -1,120 +1,248 @@
 import Foundation
+import UIKit
 import MWDATCore
 import MWDATCamera
 
 @MainActor
 final class GlassesManager: ObservableObject {
     static let shared = GlassesManager()
+    nonisolated(unsafe) static var configureError: String?
 
-    @Published var isConnected = false
-    @Published var statusText = "Not registered"
-    @Published var registrationState: RegistrationState = .available
+    @Published var registrationState: RegistrationState = .unavailable
+    @Published var hasActiveDevice = false
+    @Published var isStreaming = false
+    @Published var logLines: [String] = []
 
+    private var selector: AutoDeviceSelector?
     private var session: DeviceSession?
-    private var tokens: [AnyListenerToken] = []
-    private var registrationTask: Task<Void, Never>?
-    private var sessionTask: Task<Void, Never>?
+    private var camera: MWDATCamera.Camera?
+    private let sessionTokens = ListenerTokenBag()
+    private let streamTokens = ListenerTokenBag()
+    private var monitorTasks: [Task<Void, Never>] = []
+    private var retryTask: Task<Void, Never>?
+    private var started = false
 
-    func start() {
-        let wearables = Wearables.shared
-        registrationState = wearables.registrationState
-        statusText = "Registration: \(wearables.registrationState)"
+    private static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
-        registrationTask = Task {
-            for await state in wearables.registrationStateStream() {
-                registrationState = state
-                statusText = "Registration: \(state)"
-                if state == .registered {
-                    sessionTask?.cancel()
-                    sessionTask = Task { await connect() }
-                }
-            }
-        }
-
-        if wearables.registrationState == .registered {
-            sessionTask = Task { await connect() }
-        }
+    func addLog(_ message: String) {
+        NSLog("[GlassesStream] %@", message)
+        logLines.append("\(Self.timeFormat.string(from: Date())) \(message)")
+        if logLines.count > 80 { logLines.removeFirst(logLines.count - 80) }
     }
 
+    func start() {
+        guard !started else { return }
+        started = true
+
+        if let error = Self.configureError {
+            addLog("Wearables.configure() FAILED: \(error)")
+        }
+
+        let selector = AutoDeviceSelector(wearables: Wearables.shared)
+        self.selector = selector
+        registrationState = Wearables.shared.registrationState
+        addLog("Registration: \(registrationState)")
+
+        monitorTasks.append(Task {
+            for await state in Wearables.shared.registrationStateStream() {
+                self.registrationState = state
+                self.addLog("Registration: \(state)")
+                self.evaluate()
+            }
+        })
+
+        monitorTasks.append(Task {
+            for await ids in Wearables.shared.devicesStream() {
+                let described = ids.map { id -> String in
+                    guard let device = Wearables.shared.deviceForIdentifier(id) else { return id }
+                    return "\(device.nameOrId()) [\(device.compatibility())]"
+                }
+                self.addLog("Devices: \(described.isEmpty ? "none" : described.joined(separator: ", "))")
+            }
+        })
+
+        monitorTasks.append(Task {
+            for await id in selector.activeDeviceStream() {
+                self.hasActiveDevice = id != nil
+                self.addLog("Active device: \(id ?? "none")")
+                self.evaluate()
+            }
+        })
+    }
+
+    // MARK: - Registration
+
     func register() {
+        addLog("Starting registration (opens Meta AI)...")
         Task {
             do {
                 try await Wearables.shared.startRegistration()
             } catch let error as RegistrationError {
-                statusText = "Registration error: \(error.description)"
+                addLog("Registration error: \(error.description)")
             } catch {
-                statusText = "Registration error: \(error.localizedDescription)"
+                addLog("Registration error: \(error)")
             }
         }
     }
 
-    private func connect() async {
-        let wearables = Wearables.shared
-        let selector = AutoDeviceSelector(wearables: wearables)
+    func unregister() {
+        addLog("Unregistering...")
+        retry()
+        Task {
+            do {
+                try await Wearables.shared.startUnregistration()
+            } catch {
+                addLog("Unregister error: \(error)")
+            }
+        }
+    }
 
-        // Wait until a device is actually visible before creating a session
-        statusText = "Waiting for glasses..."
-        for await deviceId in selector.activeDeviceStream() {
-            guard deviceId != nil else { continue }
+    func handleURL(_ url: URL) {
+        addLog("Opened via URL: \(url.absoluteString.prefix(100))")
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true
+        else {
+            addLog("URL has no metaWearablesAction, ignored")
+            return
+        }
+        Task {
+            do {
+                _ = try await Wearables.shared.handleUrl(url)
+                addLog("Meta AI callback handled")
+            } catch {
+                addLog("handleUrl error: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Session
+
+    func retry() {
+        addLog("Manual retry")
+        session?.stop()
+        cleanupSession()
+        evaluate()
+    }
+
+    private func evaluate() {
+        guard registrationState == .registered else { return }
+        guard hasActiveDevice else {
+            addLog("Registered, waiting for glasses to become active (wear them / open hinges)")
+            return
+        }
+        guard session == nil else { return }
+        startSession()
+    }
+
+    private func startSession() {
+        guard let selector else { return }
+        addLog("Creating session...")
+        do throws(DeviceSessionError) {
+            let newSession = try Wearables.shared.createSession(deviceSelector: selector)
+            session = newSession
+            newSession.statePublisher.listen { [weak self] state in
+                Task { @MainActor in self?.sessionStateChanged(state) }
+            }.store(in: sessionTokens)
+            newSession.errorPublisher.listen { [weak self] error in
+                Task { @MainActor in self?.addLog("Session error: \(error)") }
+            }.store(in: sessionTokens)
+            try newSession.start()
+        } catch {
+            addLog("Session failed: \(error)")
+            cleanupSession()
+            scheduleRetry()
+        }
+    }
+
+    private func sessionStateChanged(_ state: DeviceSessionState) {
+        addLog("Session: \(state)")
+        switch state {
+        case .started:
+            Task { await startStreaming() }
+        case .stopped:
+            cleanupSession()
+            scheduleRetry()
+        default:
             break
         }
+    }
 
-        statusText = "Device found, connecting..."
-
-        do {
-            let session = try wearables.createSession(deviceSelector: selector)
-            self.session = session
-
-            do throws(DeviceSessionError) {
-                try session.start()
-            } catch {
-                statusText = "Session start error: \(error)"
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                await connect()
-                return
-            }
-
-            for await state in session.stateStream() {
-                statusText = "Session: \(state)"
-                switch state {
-                case .started:
-                    isConnected = true
-                    startStream(session: session)
-                case .stopped:
-                    isConnected = false
-                    tokens.removeAll()
-                    statusText = "Disconnected — reconnecting..."
-                    await connect()
-                    return
-                default:
-                    break
-                }
-            }
-        } catch {
-            statusText = "createSession error: \(error)"
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            await connect()
+    private func scheduleRetry() {
+        guard retryTask == nil else { return }
+        retryTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            self.retryTask = nil
+            self.evaluate()
         }
     }
 
-    private func startStream(session: DeviceSession) {
-        let config = StreamConfiguration(videoCodec: .raw, resolution: .medium, frameRate: 24)
+    private func cleanupSession() {
+        streamTokens.clear()
+        camera = nil
+        isStreaming = false
+        sessionTokens.clear()
+        session = nil
+    }
+
+    // MARK: - Stream
+
+    private func startStreaming() async {
+        guard let session, session.state == .started, camera == nil else { return }
         do {
-            guard let camera = try session.addCamera(config: config) else {
-                statusText = "Camera unavailable"
+            let status = try await Wearables.shared.checkPermissionStatus(.camera)
+            addLog("Camera permission: \(status)")
+            if status != .granted {
+                addLog("Requesting camera permission (opens Meta AI)...")
+                let result = try await Wearables.shared.requestPermission(.camera)
+                addLog("Camera permission result: \(result)")
+                guard result == .granted else { return }
+            }
+        } catch {
+            addLog("Camera permission error: \(error)")
+            return
+        }
+        guard let current = self.session, current.state == .started, camera == nil else { return }
+        beginStream(on: current)
+    }
+
+    private func beginStream(on session: DeviceSession) {
+        let config = StreamConfiguration(videoCodec: .raw, resolution: .low, frameRate: 24)
+        do {
+            guard let newCamera = try session.addCamera(config: config) else {
+                addLog("addCamera returned nil")
                 return
             }
-            let stream = camera.stream
-            let frameToken = stream.videoFramePublisher.listen { frame in
+            camera = newCamera
+            let stream = newCamera.stream
+            stream.statePublisher.listen { [weak self] state in
+                Task { @MainActor in self?.streamStateChanged(state) }
+            }.store(in: streamTokens)
+            stream.errorPublisher.listen { [weak self] error in
+                Task { @MainActor in self?.addLog("Stream error: \(error)") }
+            }.store(in: streamTokens)
+            stream.videoFramePublisher.listen { frame in
                 guard let image = frame.makeUIImage(),
-                      let jpeg = image.jpegData(compressionQuality: 0.7) else { return }
+                      let jpeg = image.jpegData(compressionQuality: 0.6) else { return }
                 Task { @MainActor in StreamServer.shared.sendFrame(jpeg) }
-            }
-            tokens.append(frameToken)
+            }.store(in: streamTokens)
+            addLog("Starting camera stream...")
             stream.start()
-            statusText = "Streaming"
         } catch {
-            statusText = "Stream error: \(error)"
+            addLog("addCamera error: \(error)")
+        }
+    }
+
+    private func streamStateChanged(_ state: StreamState) {
+        addLog("Stream: \(state)")
+        isStreaming = state == .streaming
+        if state == .stopped {
+            streamTokens.clear()
+            camera?.stop()
+            camera = nil
         }
     }
 }
