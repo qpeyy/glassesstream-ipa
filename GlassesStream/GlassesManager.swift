@@ -18,24 +18,37 @@ final class GlassesManager: ObservableObject {
     }
 
     private func connect() async {
-        statusText = "Connecting to glasses..."
+        statusText = "Connecting..."
         let wearables = Wearables.shared
         let selector = AutoDeviceSelector(wearables: wearables)
+
+        // Log active device before attempting session
+        let active = await selector.activeDevice
+        statusText = "Active device: \(active?.name ?? "nil")"
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
 
         do {
             let session = try wearables.createSession(deviceSelector: selector)
             self.session = session
-            try session.start()
+
+            do throws(DeviceSessionError) {
+                try session.start()
+            } catch {
+                statusText = "start() threw: \(error)"
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                await connect()
+                return
+            }
 
             for await state in session.stateStream() {
+                statusText = "Session state: \(state)"
                 switch state {
                 case .started:
                     isConnected = true
-                    statusText = "Connected"
                     startStream(session: session)
                 case .stopped:
                     isConnected = false
-                    statusText = "Disconnected — retrying..."
+                    statusText = "Stopped — retrying in 5s"
                     tokens.removeAll()
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     await connect()
@@ -45,8 +58,8 @@ final class GlassesManager: ObservableObject {
                 }
             }
         } catch {
-            statusText = "Error: \(error.localizedDescription)"
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            statusText = "createSession threw: \(error) | type: \(type(of: error))"
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
             await connect()
         }
     }
