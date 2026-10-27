@@ -51,7 +51,15 @@ final class GlassesManager: ObservableObject {
     private func connect() async {
         let wearables = Wearables.shared
         let selector = AutoDeviceSelector(wearables: wearables)
-        statusText = "Connecting..."
+
+        // Wait until a device is actually visible before creating a session
+        statusText = "Waiting for glasses..."
+        for await deviceId in selector.activeDeviceStream() {
+            guard deviceId != nil else { continue }
+            break
+        }
+
+        statusText = "Device found, connecting..."
 
         do {
             let session = try wearables.createSession(deviceSelector: selector)
@@ -61,7 +69,7 @@ final class GlassesManager: ObservableObject {
                 try session.start()
             } catch {
                 statusText = "Session start error: \(error)"
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
                 await connect()
                 return
             }
@@ -75,8 +83,7 @@ final class GlassesManager: ObservableObject {
                 case .stopped:
                     isConnected = false
                     tokens.removeAll()
-                    statusText = "Disconnected — retrying..."
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    statusText = "Disconnected — reconnecting..."
                     await connect()
                     return
                 default:
@@ -85,7 +92,7 @@ final class GlassesManager: ObservableObject {
             }
         } catch {
             statusText = "createSession error: \(error)"
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             await connect()
         }
     }
